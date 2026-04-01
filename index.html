@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🐢 Rùa Biển Phiêu Lưu</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0a1628;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: 'Nunito', sans-serif;
+    overflow: hidden;
+  }
+
+  h1 {
+    font-family: 'Fredoka One', cursive;
+    color: #7ee8fa;
+    font-size: 2rem;
+    margin-bottom: 10px;
+    text-shadow: 0 0 20px #7ee8fa88;
+    letter-spacing: 2px;
+  }
+
+  #hud {
+    display: flex;
+    gap: 30px;
+    margin-bottom: 10px;
+    align-items: center;
+  }
+
+  .hud-box {
+    background: rgba(255,255,255,0.08);
+    border: 1.5px solid rgba(126,232,250,0.3);
+    border-radius: 12px;
+    padding: 6px 18px;
+    color: #e0f7ff;
+    font-size: 1rem;
+    font-weight: 700;
+  }
+
+  .hud-box span { color: #7ee8fa; font-family: 'Fredoka One', cursive; font-size: 1.3rem; }
+
+  #gameCanvas {
+    border-radius: 18px;
+    border: 2px solid rgba(126,232,250,0.35);
+    box-shadow: 0 0 60px #1a6fa055, 0 0 20px #7ee8fa22;
+    display: block;
+  }
+
+  #controls {
+    margin-top: 10px;
+    color: rgba(200,240,255,0.5);
+    font-size: 0.82rem;
+    text-align: center;
+  }
+
+  #overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(5,15,35,0.88);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    z-index: 10;
+    backdrop-filter: blur(6px);
+  }
+
+  #overlay h2 {
+    font-family: 'Fredoka One', cursive;
+    font-size: 2.8rem;
+    color: #7ee8fa;
+    text-shadow: 0 0 30px #7ee8fa;
+  }
+
+  #overlay p {
+    color: #b0e8ff;
+    font-size: 1.1rem;
+    text-align: center;
+    max-width: 320px;
+    line-height: 1.6;
+  }
+
+  #startBtn {
+    background: linear-gradient(135deg, #0ea5e9, #22d3a0);
+    border: none;
+    border-radius: 50px;
+    padding: 14px 40px;
+    font-family: 'Fredoka One', cursive;
+    font-size: 1.4rem;
+    color: white;
+    cursor: pointer;
+    box-shadow: 0 4px 25px #0ea5e955;
+    transition: transform 0.15s, box-shadow 0.15s;
+    letter-spacing: 1px;
+  }
+
+  #startBtn:hover {
+    transform: scale(1.07);
+    box-shadow: 0 6px 35px #0ea5e977;
+  }
+
+  #finalScore {
+    font-family: 'Fredoka One', cursive;
+    font-size: 1.5rem;
+    color: #ffd166;
+    display: none;
+  }
+</style>
+</head>
+<body>
+
+<h1>🐢 Rùa Biển Phiêu Lưu</h1>
+<div id="hud">
+  <div class="hud-box">Điểm: <span id="scoreDisplay">0</span></div>
+  <div class="hud-box">Mạng: <span id="livesDisplay">❤️❤️❤️</span></div>
+  <div class="hud-box">Cấp: <span id="levelDisplay">1</span></div>
+</div>
+<canvas id="gameCanvas" width="700" height="440"></canvas>
+<div id="controls">🏹 WASD / mũi tên di chuyển &nbsp;|&nbsp; 🪼 Thu sứa +10đ &nbsp;|&nbsp; 🪸 San hô +❤️ &nbsp;|&nbsp; 🛍️🍶🥫 Tránh rác (-máu, chậm) &nbsp;|&nbsp; 🦈 Tránh cá mập</div>
+
+<div id="overlay">
+  <div style="font-size:5rem">🐢</div>
+  <h2>Rùa Biển Phiêu Lưu</h2>
+  <p>Thu thập sứa 🪼 để ghi điểm, ăn san hô 🪸 để hồi máu!<br>Tránh rác thải 🛍️🍶🥫 (mất máu + bị chậm) và cá mập 🦈!</p>
+  <button id="startBtn">Bắt Đầu Chơi 🌊</button>
+  <div id="finalScore"></div>
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+// ── State ──────────────────────────────────────────────
+let state = 'menu'; // menu | playing | dead | gameover
+let score = 0, lives = 3, level = 1, frame = 0;
+let invincible = 0; // frames of invincibility after hit
+
+// ── Turtle ─────────────────────────────────────────────
+const turtle = {
+  x: 100, y: H/2, w: 48, h: 38,
+  vx: 0, vy: 0, speed: 3.2,
+  facing: 1 // 1 right, -1 left
+};
+
+// ── Input ──────────────────────────────────────────────
+const keys = {};
+window.addEventListener('keydown', e => { keys[e.key] = true; });
+window.addEventListener('keyup',   e => { keys[e.key] = false; });
+
+// ── Entities ───────────────────────────────────────────
+let jellies = [], sharks = [], bubbles = [], particles = [], trashes = [], corals = [];
+let slowTimer = 0;    // frames turtle is slowed after eating trash
+let pollution = 0;    // 0-1 screen pollution overlay
+let trashAvoided = 0;
+
+// ── Bubbles (bg decoration) ────────────────────────────
+function spawnBubbles() {
+  for (let i = 0; i < 22; i++) {
+    bubbles.push({
+      x: Math.random() * W,
+      y: Math.random() * H,
+      r: Math.random() * 5 + 2,
+      speed: Math.random() * 0.6 + 0.2,
+      alpha: Math.random() * 0.4 + 0.1
+    });
+  }
+}
+
+function spawnJelly() {
+  jellies.push({
+    x: W + 30,
+    y: Math.random() * (H - 80) + 40,
+    r: Math.random() * 8 + 16,
+    speed: Math.random() * 1.2 + 0.8 + level * 0.15,
+    bob: Math.random() * Math.PI * 2,
+    hue: Math.floor(Math.random() * 60) + 270
+  });
+}
+
+function spawnShark() {
+  const fromTop = Math.random() < 0.5;
+  sharks.push({
+    x: W + 50,
+    y: fromTop ? Math.random() * (H/2 - 60) + 30 : Math.random() * (H/2 - 60) + H/2 + 30,
+    speed: Math.random() * 1.5 + 1.8 + level * 0.25,
+    phase: Math.random() * Math.PI * 2
+  });
+}
+
+// trash types: 0=túi nilon, 1=chai nhựa, 2=lon
+function spawnTrash() {
+  trashes.push({
+    x: W + 40,
+    y: Math.random() * (H - 80) + 40,
+    type: Math.floor(Math.random() * 3),
+    speed: Math.random() * 0.9 + 0.6 + level * 0.1,
+    rot: Math.random() * Math.PI * 2,
+    rotSpeed: (Math.random() - 0.5) * 0.04,
+    bob: Math.random() * Math.PI * 2
+  });
+}
+
+// san hô phục hồi máu
+function spawnCoral() {
+  corals.push({
+    x: W + 30,
+    y: Math.random() * (H - 100) + 50,
+    speed: Math.random() * 0.8 + 0.6,
+    bob: Math.random() * Math.PI * 2,
+    scale: Math.random() * 0.3 + 0.85
+  });
+}
+
+function spawnParticles(x, y, color, count) {
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const spd = Math.random() * 3 + 1;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * spd,
+      vy: Math.sin(angle) * spd,
+      r: Math.random() * 5 + 2,
+      color,
+      life: 40
+    });
+  }
+}
+
+// ── Ocean background ───────────────────────────────────
+function drawOcean() {
+  // deep gradient
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0,   '#062740');
+  grad.addColorStop(0.5, '#0a3d62');
+  grad.addColorStop(1,   '#051520');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // light rays
+  ctx.save();
+  for (let i = 0; i < 5; i++) {
+    const x = 60 + i * 140 + Math.sin(frame * 0.008 + i) * 20;
+    const ray = ctx.createLinearGradient(x, 0, x + 60, H);
+    ray.addColorStop(0, 'rgba(100,200,255,0.06)');
+    ray.addColorStop(1, 'rgba(100,200,255,0)');
+    ctx.fillStyle = ray;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x + 80, H);
+    ctx.lineTo(x - 20, H);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ── Draw turtle ────────────────────────────────────────
+function drawTurtle(t) {
+  ctx.save();
+  ctx.translate(t.x, t.y);
+  if (t.facing < 0) ctx.scale(-1, 1);
+
+  // blink when invincible
+  if (invincible > 0 && Math.floor(invincible / 4) % 2 === 0) {
+    ctx.globalAlpha = 0.3;
+  }
+
+  const sw = 0.12; // swim wave
+  const frontSwing = Math.sin(frame * sw) * 0.55;
+  const backSwing  = Math.sin(frame * sw + Math.PI) * 0.45;
+
+  // ── back flippers (drawn behind shell) ──
+  ctx.fillStyle = '#2e8b25';
+  // back-left
+  ctx.save();
+  ctx.translate(-t.w*0.28, t.h*0.18);
+  ctx.rotate(backSwing + 0.3);
+  ctx.beginPath();
+  ctx.ellipse(0, 10, 7, 18, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+  // back-right
+  ctx.save();
+  ctx.translate(-t.w*0.28, -t.h*0.18);
+  ctx.rotate(-backSwing - 0.3);
+  ctx.beginPath();
+  ctx.ellipse(0, -10, 7, 18, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+
+  // ── shell ──
+  // dark base
+  ctx.fillStyle = '#1e5c18';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, t.w/2, t.h/2, 0, 0, Math.PI*2);
+  ctx.fill();
+  // green top
+  ctx.fillStyle = '#2d7a22';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, t.w/2 - 2, t.h/2 - 2, 0, 0, Math.PI*2);
+  ctx.fill();
+  // hex pattern
+  ctx.strokeStyle = '#1a5214';
+  ctx.lineWidth = 1.2;
+  // center hex
+  const hw = t.w * 0.22, hh = t.h * 0.22;
+  ctx.beginPath(); ctx.ellipse(0, 0, hw, hh, 0, 0, Math.PI*2); ctx.stroke();
+  // 6 sections radiating out
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a)*hw, Math.sin(a)*hh);
+    ctx.lineTo(Math.cos(a)*(t.w/2-2), Math.sin(a)*(t.h/2-2));
+    ctx.stroke();
+  }
+
+  // ── front flippers ──
+  ctx.fillStyle = '#3aaa2e';
+  // front-left (bottom side)
+  ctx.save();
+  ctx.translate(t.w*0.15, t.h*0.22);
+  ctx.rotate(frontSwing + 0.5);
+  ctx.beginPath();
+  ctx.ellipse(0, 12, 8, 20, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+  // front-right (top side)
+  ctx.save();
+  ctx.translate(t.w*0.15, -t.h*0.22);
+  ctx.rotate(-frontSwing - 0.5);
+  ctx.beginPath();
+  ctx.ellipse(0, -12, 8, 20, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+
+  // ── neck ──
+  ctx.fillStyle = '#3aaa2e';
+  ctx.beginPath();
+  ctx.ellipse(t.w*0.42, 0, 10, 7, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // ── head ──
+  ctx.fillStyle = '#3aaa2e';
+  ctx.beginPath();
+  ctx.ellipse(t.w*0.54, 0, 13, 10, 0, 0, Math.PI*2);
+  ctx.fill();
+  // head darker top
+  ctx.fillStyle = '#2d8a22';
+  ctx.beginPath();
+  ctx.ellipse(t.w*0.54, -2, 13, 7, -0.15, 0, Math.PI*2);
+  ctx.fill();
+
+  // nostril
+  ctx.fillStyle = '#1e5c18';
+  ctx.beginPath(); ctx.arc(t.w*0.64, -2, 1.5, 0, Math.PI*2); ctx.fill();
+
+  // eye white
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(t.w*0.56, -5, 4, 0, Math.PI*2); ctx.fill();
+  // pupil
+  ctx.fillStyle = '#111';
+  ctx.beginPath(); ctx.arc(t.w*0.57, -5, 2, 0, Math.PI*2); ctx.fill();
+  // eye shine
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(t.w*0.575, -5.8, 0.9, 0, Math.PI*2); ctx.fill();
+
+  // ── tail ──
+  ctx.fillStyle = '#2d7a22';
+  ctx.beginPath();
+  ctx.moveTo(-t.w*0.46, -3);
+  ctx.quadraticCurveTo(-t.w*0.65, 0, -t.w*0.46, 3);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.restore();
+}
+
+// ── Draw jellyfish ─────────────────────────────────────
+function drawJelly(j) {
+  const bobY = Math.sin(frame * 0.04 + j.bob) * 6;
+  ctx.save();
+  ctx.translate(j.x, j.y + bobY);
+
+  // glow
+  const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, j.r * 1.8);
+  glow.addColorStop(0, `hsla(${j.hue},80%,75%,0.3)`);
+  glow.addColorStop(1, `hsla(${j.hue},80%,75%,0)`);
+  ctx.fillStyle = glow;
+  ctx.beginPath(); ctx.arc(0, 0, j.r * 1.8, 0, Math.PI*2); ctx.fill();
+
+  // bell
+  ctx.fillStyle = `hsla(${j.hue},70%,75%,0.85)`;
+  ctx.beginPath();
+  ctx.arc(0, 0, j.r, Math.PI, 0);
+  ctx.quadraticCurveTo(j.r, j.r * 0.6, 0, j.r * 0.5);
+  ctx.quadraticCurveTo(-j.r, j.r * 0.6, -j.r, 0);
+  ctx.closePath();
+  ctx.fill();
+
+  // tentacles
+  ctx.strokeStyle = `hsla(${j.hue},70%,80%,0.5)`;
+  ctx.lineWidth = 1.5;
+  for (let i = -3; i <= 3; i++) {
+    const tx = (i / 3) * j.r * 0.7;
+    ctx.beginPath();
+    ctx.moveTo(tx, j.r * 0.5);
+    for (let t = 0; t <= 1; t += 0.1) {
+      const wx = tx + Math.sin(t * 5 + frame * 0.08 + i) * 4;
+      const wy = j.r * 0.5 + t * j.r * 1.4;
+      ctx.lineTo(wx, wy);
+    }
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+// ── Draw shark ─────────────────────────────────────────
+function drawShark(s) {
+  const wobble = Math.sin(frame * 0.09 + s.phase) * 9;
+  const tailWag = Math.sin(frame * 0.18 + s.phase) * 0.35;
+  ctx.save();
+  ctx.translate(s.x, s.y + wobble);
+  ctx.scale(-1, 1); // face left toward turtle
+
+  // ── main body (torpedo shape) ──
+  ctx.fillStyle = '#536878';
+  ctx.beginPath();
+  ctx.moveTo(65, 0);                          // snout tip
+  ctx.bezierCurveTo(60, -22, 10, -26, -30, -16); // top
+  ctx.bezierCurveTo(-55, -10, -68, -4, -72, 0);  // tail root top
+  ctx.bezierCurveTo(-68, 4, -55, 10, -30, 16);   // tail root bottom
+  ctx.bezierCurveTo(10, 26, 60, 22, 65, 0);      // bottom back to snout
+  ctx.closePath();
+  ctx.fill();
+
+  // ── belly (lighter underside) ──
+  ctx.fillStyle = '#d4dde6';
+  ctx.beginPath();
+  ctx.moveTo(55, 0);
+  ctx.bezierCurveTo(45, 8, 10, 18, -25, 14);
+  ctx.bezierCurveTo(-50, 10, -62, 4, -65, 0);
+  ctx.bezierCurveTo(-62, -4, -50, -10, -25, -14);
+  ctx.bezierCurveTo(10, -18, 45, -8, 55, 0);
+  ctx.closePath();
+  ctx.fill();
+
+  // ── heterocercal tail (upper lobe bigger) ──
+  ctx.save();
+  ctx.translate(-72, 0);
+  ctx.rotate(tailWag);
+  ctx.fillStyle = '#455c6e';
+  // upper lobe
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.bezierCurveTo(-8, -12, -18, -28, -10, -40);
+  ctx.bezierCurveTo(-4, -28, 4, -14, 0, 0);
+  ctx.closePath();
+  ctx.fill();
+  // lower lobe (smaller)
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.bezierCurveTo(-5, 8, -14, 18, -8, 28);
+  ctx.bezierCurveTo(-2, 18, 4, 8, 0, 0);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  // ── dorsal fin (tall & menacing) ──
+  ctx.fillStyle = '#455c6e';
+  ctx.beginPath();
+  ctx.moveTo(-5, -16);        // base front
+  ctx.lineTo(5, -48);         // peak
+  ctx.bezierCurveTo(8, -38, 18, -24, 22, -16); // back curve
+  ctx.closePath();
+  ctx.fill();
+
+  // ── pectoral fins (left/right, show one side) ──
+  ctx.fillStyle = '#4a6070';
+  // bottom pectoral
+  ctx.beginPath();
+  ctx.moveTo(20, 10);
+  ctx.bezierCurveTo(15, 22, 0, 38, -10, 34);
+  ctx.bezierCurveTo(0, 22, 10, 14, 20, 10);
+  ctx.closePath();
+  ctx.fill();
+
+  // ── anal/pelvic fin ──
+  ctx.fillStyle = '#455c6e';
+  ctx.beginPath();
+  ctx.moveTo(-28, 14);
+  ctx.bezierCurveTo(-32, 22, -42, 28, -44, 22);
+  ctx.bezierCurveTo(-38, 18, -30, 16, -28, 14);
+  ctx.closePath();
+  ctx.fill();
+
+  // ── gill slits ──
+  ctx.strokeStyle = '#374f5e';
+  ctx.lineWidth = 1.5;
+  ctx.lineCap = 'round';
+  for (let g = 0; g < 5; g++) {
+    const gx = 30 - g * 7;
+    ctx.beginPath();
+    ctx.moveTo(gx, -10 - g*0.5);
+    ctx.quadraticCurveTo(gx - 2, 0, gx, 10 + g*0.5);
+    ctx.stroke();
+  }
+
+  // ── snout / jaw ──
+  ctx.fillStyle = '#536878';
+  ctx.beginPath();
+  ctx.moveTo(65, 0);
+  ctx.bezierCurveTo(70, -8, 72, -4, 68, 0);
+  ctx.bezierCurveTo(72, 4, 70, 8, 65, 0);
+  ctx.closePath();
+  ctx.fill();
+
+  // lower jaw slightly open
+  ctx.fillStyle = '#d4dde6';
+  ctx.beginPath();
+  ctx.moveTo(62, 2);
+  ctx.bezierCurveTo(66, 6, 60, 12, 52, 10);
+  ctx.bezierCurveTo(56, 6, 60, 4, 62, 2);
+  ctx.closePath();
+  ctx.fill();
+
+  // teeth
+  ctx.fillStyle = '#fff';
+  for (let t = 0; t < 4; t++) {
+    ctx.beginPath();
+    ctx.moveTo(62 - t*5, 3);
+    ctx.lineTo(60 - t*5, 10);
+    ctx.lineTo(58 - t*5, 3);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // ── eye (dark, menacing) ──
+  ctx.fillStyle = '#1a1a2e';
+  ctx.beginPath(); ctx.arc(44, -8, 6, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#000';
+  ctx.beginPath(); ctx.arc(44, -8, 4, 0, Math.PI*2); ctx.fill();
+  // small shine
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  ctx.beginPath(); ctx.arc(46, -10, 1.5, 0, Math.PI*2); ctx.fill();
+
+  ctx.restore();
+}
+
+// ── Draw trash ─────────────────────────────────────────
+function drawTrash(t) {
+  const bobY = Math.sin(frame * 0.035 + t.bob) * 5;
+  ctx.save();
+  ctx.translate(t.x, t.y + bobY);
+  ctx.rotate(t.rot);
+
+  if (t.type === 0) {
+    // túi nilon
+    ctx.strokeStyle = 'rgba(200,230,255,0.75)';
+    ctx.fillStyle = 'rgba(180,220,255,0.25)';
+    ctx.lineWidth = 1.5;
+    // thân túi
+    ctx.beginPath();
+    ctx.moveTo(-12, -18);
+    ctx.bezierCurveTo(-18, 0, -16, 14, 0, 18);
+    ctx.bezierCurveTo(16, 14, 18, 0, 12, -18);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    // quai túi
+    ctx.beginPath();
+    ctx.moveTo(-8, -18); ctx.bezierCurveTo(-14, -30, -4, -32, 0, -26);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(8, -18); ctx.bezierCurveTo(14, -30, 4, -32, 0, -26);
+    ctx.stroke();
+    // nếp nhăn
+    ctx.beginPath();
+    ctx.moveTo(-6, -5); ctx.bezierCurveTo(-2, 2, 2, 2, 6, -5);
+    ctx.stroke();
+
+  } else if (t.type === 1) {
+    // chai nhựa
+    ctx.fillStyle = 'rgba(160,220,200,0.35)';
+    ctx.strokeStyle = 'rgba(100,200,170,0.8)';
+    ctx.lineWidth = 1.5;
+    // thân chai
+    ctx.beginPath();
+    ctx.roundRect(-9, -5, 18, 26, 4);
+    ctx.fill(); ctx.stroke();
+    // cổ chai
+    ctx.beginPath();
+    ctx.roundRect(-5, -18, 10, 14, 3);
+    ctx.fill(); ctx.stroke();
+    // nắp
+    ctx.fillStyle = 'rgba(255,120,80,0.85)';
+    ctx.beginPath();
+    ctx.roundRect(-5, -22, 10, 6, 2);
+    ctx.fill();
+    // nhãn
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.beginPath();
+    ctx.roundRect(-7, 2, 14, 10, 2);
+    ctx.fill();
+
+  } else {
+    // lon nước ngọt
+    ctx.fillStyle = 'rgba(220,60,60,0.7)';
+    ctx.strokeStyle = 'rgba(180,40,40,0.9)';
+    ctx.lineWidth = 1.5;
+    // thân lon
+    ctx.beginPath();
+    ctx.roundRect(-10, -14, 20, 28, 3);
+    ctx.fill(); ctx.stroke();
+    // nắp trên
+    ctx.fillStyle = 'rgba(200,200,200,0.85)';
+    ctx.beginPath();
+    ctx.ellipse(0, -14, 10, 4, 0, 0, Math.PI*2);
+    ctx.fill(); ctx.stroke();
+    // đáy
+    ctx.beginPath();
+    ctx.ellipse(0, 14, 10, 4, 0, 0, Math.PI*2);
+    ctx.fill(); ctx.stroke();
+    // sọc trang trí
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(-10, -4); ctx.lineTo(10, -4); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-10, 4);  ctx.lineTo(10, 4);  ctx.stroke();
+    // tab mở
+    ctx.strokeStyle = 'rgba(160,160,160,0.9)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(-2, -14); ctx.lineTo(2, -18); ctx.lineTo(6, -16);
+    ctx.stroke();
+  }
+
+  // vầng sáng cảnh báo màu vàng nhạt
+  const warn = ctx.createRadialGradient(0,0,0,0,0,28);
+  warn.addColorStop(0, 'rgba(255,200,50,0.12)');
+  warn.addColorStop(1, 'rgba(255,200,50,0)');
+  ctx.fillStyle = warn;
+  ctx.beginPath(); ctx.arc(0,0,28,0,Math.PI*2); ctx.fill();
+
+  ctx.restore();
+}
+
+// ── Draw coral (hồi máu) ────────────────────────────────
+function drawCoral(c) {
+  const bobY = Math.sin(frame * 0.05 + c.bob) * 5;
+  ctx.save();
+  ctx.translate(c.x, c.y + bobY);
+  ctx.scale(c.scale, c.scale);
+
+  // glow hồng
+  const glow = ctx.createRadialGradient(0,0,0,0,0,30);
+  glow.addColorStop(0, 'rgba(255,120,180,0.35)');
+  glow.addColorStop(1, 'rgba(255,120,180,0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath(); ctx.arc(0,0,30,0,Math.PI*2); ctx.fill();
+
+  // nhánh san hô
+  const branches = [
+    {x:0,  y:0,  h:28, angle:0},
+    {x:-8, y:4,  h:20, angle:-0.4},
+    {x:8,  y:4,  h:20, angle:0.4},
+    {x:-4, y:8,  h:14, angle:-0.7},
+    {x:4,  y:8,  h:14, angle:0.7},
+  ];
+  branches.forEach(b => {
+    ctx.save();
+    ctx.translate(b.x, b.y);
+    ctx.rotate(b.angle);
+    ctx.strokeStyle = '#ff6eb0';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(0, 0); ctx.lineTo(0, -b.h);
+    ctx.stroke();
+    // đầu nhánh
+    ctx.fillStyle = '#ff9dd0';
+    ctx.beginPath(); ctx.arc(0, -b.h, 4, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  });
+
+  // nhãn + icon tim nhỏ
+  ctx.fillStyle = 'rgba(255,150,200,0.9)';
+  ctx.font = 'bold 11px Nunito';
+  ctx.textAlign = 'center';
+  ctx.fillText('+❤️', 0, -38);
+
+  ctx.restore();
+}
+
+// ── Draw pollution overlay ──────────────────────────────
+function drawPollution() {
+  if (pollution <= 0) return;
+  ctx.save();
+  ctx.globalAlpha = pollution * 0.32;
+  ctx.fillStyle = '#4a3000';
+  ctx.fillRect(0, 0, W, H);
+  // vệt bẩn góc màn hình
+  ['rgba(80,50,0,0.4)', 'rgba(60,40,0,0.3)'].forEach((c, i) => {
+    ctx.globalAlpha = pollution * (0.4 - i*0.1);
+    ctx.fillStyle = c;
+    ctx.beginPath();
+    ctx.arc(i===0?0:W, i===0?0:H, 80 + pollution*40, 0, Math.PI*2);
+    ctx.fill();
+  });
+  ctx.restore();
+}
+function drawBubbles() {
+  bubbles.forEach(b => {
+    ctx.strokeStyle = `rgba(150,220,255,${b.alpha})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r, 0, Math.PI*2);
+    ctx.stroke();
+  });
+}
+
+// ── Collision ──────────────────────────────────────────
+function circleRect(cx, cy, cr, rx, ry, rw, rh) {
+  const nearX = Math.max(rx - rw/2, Math.min(cx, rx + rw/2));
+  const nearY = Math.max(ry - rh/2, Math.min(cy, ry + rh/2));
+  const dx = cx - nearX, dy = cy - nearY;
+  return dx*dx + dy*dy < cr*cr;
+}
+
+// ── Update ─────────────────────────────────────────────
+function update() {
+  frame++;
+  if (invincible > 0) invincible--;
+  if (slowTimer > 0) slowTimer--;
+  pollution = Math.max(0, pollution - 0.008);
+
+  const spd = slowTimer > 0 ? turtle.speed * 0.45 : turtle.speed;
+
+  // turtle movement
+  turtle.vx = 0; turtle.vy = 0;
+  if (keys['ArrowLeft']  || keys['a'] || keys['A']) { turtle.vx = -spd; turtle.facing = -1; }
+  if (keys['ArrowRight'] || keys['d'] || keys['D']) { turtle.vx =  spd; turtle.facing =  1; }
+  if (keys['ArrowUp']    || keys['w'] || keys['W']) turtle.vy = -spd;
+  if (keys['ArrowDown']  || keys['s'] || keys['S']) turtle.vy =  spd;
+
+  // diagonal normalize
+  if (turtle.vx !== 0 && turtle.vy !== 0) {
+    turtle.vx *= 0.707; turtle.vy *= 0.707;
+  }
+
+  turtle.x = Math.max(turtle.w/2, Math.min(W - turtle.w/2, turtle.x + turtle.vx));
+  turtle.y = Math.max(turtle.h/2, Math.min(H - turtle.h/2, turtle.y + turtle.vy));
+
+  // bubbles float up
+  bubbles.forEach(b => {
+    b.y -= b.speed;
+    if (b.y < -10) { b.y = H + 10; b.x = Math.random() * W; }
+  });
+
+  // jellies
+  if (frame % Math.max(40, 100 - level * 8) === 0) spawnJelly();
+  jellies.forEach(j => j.x -= j.speed);
+  jellies = jellies.filter(j => j.x > -50);
+
+  // sharks
+  if (frame % Math.max(90, 200 - level * 15) === 0) spawnShark();
+  sharks.forEach(s => s.x -= s.speed);
+  sharks = sharks.filter(s => s.x > -80);
+
+  // trash spawn — nhiều hơn theo cấp
+  if (frame % Math.max(55, 140 - level * 10) === 0) spawnTrash();
+  trashes.forEach(t => { t.x -= t.speed; t.rot += t.rotSpeed; });
+  const beforeTrash = trashes.length;
+  trashes = trashes.filter(t => t.x > -50);
+  // đếm rác thoát an toàn
+  trashAvoided += beforeTrash - trashes.length;
+
+  // coral spawn — thỉnh thoảng xuất hiện
+  if (frame % Math.max(300, 500 - level * 20) === 0) spawnCoral();
+  corals.forEach(c => c.x -= c.speed);
+  corals = corals.filter(c => c.x > -50);
+
+  // particles
+  particles.forEach(p => {
+    p.x += p.vx; p.y += p.vy;
+    p.vy += 0.08; p.life--;
+  });
+  particles = particles.filter(p => p.life > 0);
+
+  // collect jellies
+  jellies = jellies.filter(j => {
+    if (circleRect(j.x, j.y, j.r, turtle.x, turtle.y, turtle.w * 0.8, turtle.h * 0.8)) {
+      score += 10;
+      document.getElementById('scoreDisplay').textContent = score;
+      level = 1 + Math.floor(score / 100);
+      document.getElementById('levelDisplay').textContent = level;
+      spawnParticles(j.x, j.y, `hsl(${j.hue},80%,70%)`, 10);
+      return false;
+    }
+    return true;
+  });
+
+  // collect coral → hồi 1 máu
+  corals = corals.filter(c => {
+    if (circleRect(c.x, c.y, 22 * c.scale, turtle.x, turtle.y, turtle.w * 0.8, turtle.h * 0.8)) {
+      if (lives < 3) {
+        lives = Math.min(3, lives + 1);
+        updateLives();
+      }
+      score += 5;
+      document.getElementById('scoreDisplay').textContent = score;
+      spawnParticles(c.x, c.y, '#ff6eb0', 12);
+      showFloatingText(c.x, c.y, '+❤️ Hồi Máu!', '#ff9dd0');
+      return false;
+    }
+    return true;
+  });
+
+  // hit trash → mất máu + chậm + ô nhiễm
+  if (invincible === 0) {
+    trashes = trashes.filter(t => {
+      const bobY = Math.sin(frame * 0.035 + t.bob) * 5;
+      if (circleRect(t.x, t.y + bobY, 20, turtle.x, turtle.y, turtle.w * 0.7, turtle.h * 0.7)) {
+        lives--;
+        invincible = 90;
+        slowTimer = 120;
+        pollution = Math.min(1, pollution + 0.5);
+        spawnParticles(t.x, t.y + bobY, '#8B6914', 16);
+        showFloatingText(t.x, t.y, '☠️ Ô nhiễm!', '#ff9900');
+        updateLives();
+        if (lives <= 0) { state = 'gameover'; showGameOver(); }
+        return false;
+      }
+      return true;
+    });
+  }
+
+  // hit by shark
+  if (invincible === 0) {
+    sharks.forEach(s => {
+      const wobble = Math.sin(frame * 0.08 + s.phase) * 8;
+      if (circleRect(s.x, s.y + wobble, 28, turtle.x, turtle.y, turtle.w * 0.7, turtle.h * 0.7)) {
+        lives--;
+        invincible = 90;
+        spawnParticles(turtle.x, turtle.y, '#ff6b6b', 14);
+        showFloatingText(turtle.x, turtle.y - 30, '🦈 Bị cắn!', '#ff4444');
+        updateLives();
+        if (lives <= 0) { state = 'gameover'; showGameOver(); }
+      }
+    });
+  }
+}
+
+function updateLives() {
+  document.getElementById('livesDisplay').textContent = '❤️'.repeat(Math.max(0, lives));
+}
+
+// ── Floating text ──────────────────────────────────────
+let floatingTexts = [];
+function showFloatingText(x, y, text, color) {
+  floatingTexts.push({ x, y, text, color, life: 60 });
+}
+function updateFloatingTexts() {
+  floatingTexts.forEach(f => { f.y -= 1.2; f.life--; });
+  floatingTexts = floatingTexts.filter(f => f.life > 0);
+}
+function drawFloatingTexts() {
+  floatingTexts.forEach(f => {
+    ctx.save();
+    ctx.globalAlpha = f.life / 60;
+    ctx.fillStyle = f.color;
+    ctx.font = 'bold 15px Nunito';
+    ctx.textAlign = 'center';
+    ctx.shadowColor = 'rgba(0,0,0,0.8)';
+    ctx.shadowBlur = 6;
+    ctx.fillText(f.text, f.x, f.y);
+    ctx.restore();
+  });
+}
+
+// ── Draw particles ─────────────────────────────────────
+function drawParticles() {
+  particles.forEach(p => {
+    ctx.save();
+    ctx.globalAlpha = p.life / 40;
+    ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  });
+}
+
+// ── Render ─────────────────────────────────────────────
+function render() {
+  drawOcean();
+  drawBubbles();
+  corals.forEach(drawCoral);
+  jellies.forEach(drawJelly);
+  trashes.forEach(drawTrash);
+  sharks.forEach(drawShark);
+  drawParticles();
+  drawTurtle(turtle);
+  drawPollution();
+  drawFloatingTexts();
+  // chỉ báo bị chậm
+  if (slowTimer > 0) {
+    ctx.save();
+    ctx.globalAlpha = 0.7;
+    ctx.fillStyle = '#ff9900';
+    ctx.font = 'bold 13px Nunito';
+    ctx.textAlign = 'center';
+    ctx.fillText('🐢 Bị chậm vì rác!', turtle.x, turtle.y - 38);
+    ctx.restore();
+  }
+}
+
+// ── Game loop ──────────────────────────────────────────
+function loop() {
+  if (state === 'playing') {
+    update();
+    updateFloatingTexts();
+    render();
+  }
+  requestAnimationFrame(loop);
+}
+
+// ── Start / Gameover ───────────────────────────────────
+function startGame() {
+  score = 0; lives = 3; level = 1; frame = 0; invincible = 0;
+  slowTimer = 0; pollution = 0; trashAvoided = 0;
+  turtle.x = 100; turtle.y = H/2;
+  jellies = []; sharks = []; particles = []; trashes = []; corals = []; floatingTexts = [];
+  document.getElementById('scoreDisplay').textContent = 0;
+  document.getElementById('levelDisplay').textContent = 1;
+  updateLives();
+  spawnBubbles();
+  state = 'playing';
+  document.getElementById('overlay').style.display = 'none';
+}
+
+function showGameOver() {
+  const ov = document.getElementById('overlay');
+  ov.style.display = 'flex';
+  ov.querySelector('h2').textContent = '💀 Rùa Đã Ngủm!';
+  ov.querySelector('p').textContent = `Chú rùa đã bị hại...\nBạn đạt ${score} điểm ở cấp ${level}!\n🗑️ Đã tránh được ${trashAvoided} rác thải!`;
+  document.getElementById('startBtn').textContent = '🔄 Chơi Lại';
+  document.getElementById('finalScore').style.display = 'block';
+  document.getElementById('finalScore').textContent = `🏆 ${score} điểm · 🗑️ ${trashAvoided} rác tránh được`;
+}
+
+document.getElementById('startBtn').addEventListener('click', startGame);
+
+// prevent arrow key scrolling
+window.addEventListener('keydown', e => {
+  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
+});
+
+loop();
+</script>
+</body>
+</html>
